@@ -2,6 +2,7 @@ import axios from "axios";
 import { ApiConstants } from "../utils/constants";
 import IngredientTranslator from "../utils/ingredientTranslator";
 import TranslationService from "./TranslationService";
+import { koreanRecipesData } from "../data/koreanRecipes";
 
 class ApiService {
     constructor() {
@@ -408,12 +409,38 @@ class ApiService {
                 error.message === "Network Error" ||
                 error.code === "ERR_NETWORK"
             ) {
-                throw new Error(
-                    "네트워크 연결에 실패했습니다. 인터넷 연결을 확인해주세요."
+                // 네트워크 에러 시 로컬 데이터 반환
+                console.log("⚠️ 네트워크 에러, 로컬 데이터 사용");
+            } else {
+                // 기타 에러도 로컬 데이터 반환
+                console.log(
+                    "⚠️ API 호출 실패, 로컬 데이터 사용:",
+                    error.message
                 );
             }
 
-            throw new Error(error.message || "네트워크 오류가 발생했습니다.");
+            // API 호출 실패 시 로컬 데이터 반환
+            const filteredRecipes = koreanRecipesData.filter((recipe) => {
+                const recipeIngredients = recipe.ingredients.map((ing) =>
+                    ing.name.toLowerCase()
+                );
+                return ingredientNames.some((ingredient) =>
+                    recipeIngredients.some(
+                        (ri) =>
+                            ri.includes(ingredient.toLowerCase()) ||
+                            ingredient.toLowerCase().includes(ri)
+                    )
+                );
+            });
+
+            // 필터링된 결과가 없으면 전체 로컬 데이터 반환
+            const finalRecipes =
+                filteredRecipes.length > 0
+                    ? filteredRecipes
+                    : koreanRecipesData.slice(0, 6);
+
+            console.log(`✅ 로컬 데이터 ${finalRecipes.length}개 반환`);
+            return finalRecipes;
         }
     }
 

@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 const RecipeDetailScreen = ({ route }) => {
-    const { recipe } = route.params || {};
+    const { recipe, selectedIngredients = [] } = route.params || {};
 
     if (!recipe) {
         return (
@@ -17,6 +17,65 @@ const RecipeDetailScreen = ({ route }) => {
             </SafeAreaView>
         );
     }
+
+    // 재료 비교 함수 - 부족한 재료 찾기 (엄격한 검증)
+    const checkIngredientAvailability = (ingredientName) => {
+        if (selectedIngredients.length === 0) {
+            return false; // 재료를 입력하지 않았으면 모두 부족한 것으로 표시
+        }
+
+        // 레시피 재료명에서 단어 추출 (쉼표, 공백으로 분리)
+        const normalizedRecipeIngredient = ingredientName.toLowerCase().trim();
+        const recipeWords = normalizedRecipeIngredient
+            .split(/[,\s]+/)
+            .map((word) => word.trim())
+            .filter((word) => word.length > 0);
+
+        // 사용자가 입력한 재료와 정확히 비교
+        return selectedIngredients.some((selectedIngredient) => {
+            const normalizedSelected = selectedIngredient.toLowerCase().trim();
+            const selectedWords = normalizedSelected
+                .split(/[,\s]+/)
+                .map((word) => word.trim())
+                .filter((word) => word.length > 0);
+
+            // 1. 정확히 일치하는지 확인
+            if (normalizedRecipeIngredient === normalizedSelected) {
+                return true;
+            }
+
+            // 2. 단어 단위로 비교 (레시피 재료의 주요 단어가 사용자 입력과 일치하는지)
+            // 예: "양파" 입력 시 "양파 1개"와 매칭
+            const hasMatchingWord = recipeWords.some((recipeWord) => {
+                return (
+                    recipeWord === normalizedSelected ||
+                    selectedWords.some(
+                        (selectedWord) => recipeWord === selectedWord
+                    )
+                );
+            });
+
+            if (hasMatchingWord) {
+                return true;
+            }
+
+            // 3. 사용자 입력이 레시피 재료명에 포함되어 있는지 (단어 경계 고려)
+            // 예: "양파" 입력 시 "양파"가 포함된 재료와 매칭
+            if (normalizedRecipeIngredient.includes(normalizedSelected)) {
+                // 단어 경계 확인 (공백, 쉼표, 시작/끝)
+                const regex = new RegExp(
+                    `(^|[,\\s])${normalizedSelected.replace(
+                        /[.*+?^${}()|[\]\\]/g,
+                        "\\$&"
+                    )}([,\\s]|$)`,
+                    "i"
+                );
+                return regex.test(normalizedRecipeIngredient);
+            }
+
+            return false;
+        });
+    };
 
     return (
         <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -61,19 +120,52 @@ const RecipeDetailScreen = ({ route }) => {
                         ).map((ingredient, index) => {
                             const displayName =
                                 ingredient.translatedName || ingredient.name;
+                            const hasIngredient =
+                                checkIngredientAvailability(displayName);
+
                             return (
-                                <View key={index} style={styles.ingredientRow}>
+                                <View
+                                    key={index}
+                                    style={[
+                                        styles.ingredientRow,
+                                        !hasIngredient &&
+                                            styles.missingIngredientRow,
+                                    ]}
+                                >
                                     <Ionicons
-                                        name="checkmark-circle-outline"
+                                        name={
+                                            hasIngredient
+                                                ? "checkmark-circle"
+                                                : "close-circle"
+                                        }
                                         size={20}
-                                        color="#4caf50"
+                                        color={
+                                            hasIngredient
+                                                ? "#4caf50"
+                                                : "#f44336"
+                                        }
                                     />
-                                    <Text style={styles.ingredientText}>
+                                    <Text
+                                        style={[
+                                            styles.ingredientText,
+                                            !hasIngredient &&
+                                                styles.missingIngredientText,
+                                        ]}
+                                    >
                                         {displayName}
                                         {ingredient.amount &&
                                             ingredient.unit &&
                                             ` (${ingredient.amount} ${ingredient.unit})`}
                                     </Text>
+                                    {!hasIngredient && (
+                                        <View style={styles.missingBadge}>
+                                            <Text
+                                                style={styles.missingBadgeText}
+                                            >
+                                                필요
+                                            </Text>
+                                        </View>
+                                    )}
                                 </View>
                             );
                         })}
@@ -171,6 +263,29 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginLeft: 8,
         color: "#333",
+        fontFamily: "LeeSeoYun",
+        flex: 1,
+    },
+    missingIngredientRow: {
+        backgroundColor: "#ffebee",
+        borderWidth: 1,
+        borderColor: "#f44336",
+        borderStyle: "dashed",
+    },
+    missingIngredientText: {
+        color: "#d32f2f",
+        fontWeight: "600",
+    },
+    missingBadge: {
+        backgroundColor: "#f44336",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        marginLeft: 8,
+    },
+    missingBadgeText: {
+        color: "#fff",
+        fontSize: 12,
         fontFamily: "LeeSeoYun",
     },
     stepRow: {

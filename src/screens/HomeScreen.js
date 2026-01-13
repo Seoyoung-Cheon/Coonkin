@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -11,6 +11,11 @@ const HomeScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
             <View style={styles.content}>
+                <Image
+                    source={require("../../assets/logo (3).png")}
+                    style={styles.logo}
+                    tintColor="#645559"
+                />
                 <Text style={styles.title}>COOKIN에 오신 것을 환영합니다</Text>
                 <TouchableOpacity
                     style={styles.button}
@@ -50,7 +55,7 @@ const styles = StyleSheet.create({
     button: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#56423d",
+        backgroundColor: "#645559",
         paddingHorizontal: 32,
         paddingVertical: 16,
         borderRadius: 8,
@@ -61,6 +66,12 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginLeft: 8,
         fontFamily: "LeeSeoYun",
+    },
+    logo: {
+        width: 100,
+        height: 100,
+        marginBottom: 32,
+        resizeMode: "contain",
     },
 });
 

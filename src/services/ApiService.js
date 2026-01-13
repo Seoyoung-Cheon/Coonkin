@@ -317,17 +317,44 @@ class ApiService {
                     // 재료 정보 파싱
                     const ingredients = [];
                     if (recipe.RCP_PARTS_DTLS) {
-                        const parts = recipe.RCP_PARTS_DTLS.split(",");
+                        // 여러 구분자로 분리: 쉼표, 줄바꿈, 세미콜론 등
+                        const parts = recipe.RCP_PARTS_DTLS
+                            .split(/[,;\n\r]+/)
+                            .map((part) => part.trim())
+                            .filter((part) => part.length > 0);
+                        
                         parts.forEach((part) => {
-                            const trimmed = part.trim();
-                            if (trimmed) {
+                            // 괄호, 숫자, 단위 제거하여 순수 재료명 추출
+                            // 예: "당근(1개)" -> "당근", "소고기 200g" -> "소고기"
+                            const cleanName = part
+                                .replace(/\([^)]*\)/g, "") // 괄호 내용 제거
+                                .replace(/\d+[가-힣a-zA-Z]*/g, "") // 숫자+단위 제거
+                                .trim();
+                            
+                            if (cleanName) {
                                 ingredients.push({
-                                    name: trimmed,
+                                    name: cleanName, // 순수 재료명
+                                    originalName: part, // 원본 (디버깅용)
+                                    amount: "",
+                                    unit: "",
+                                });
+                            } else {
+                                // 정제 후 이름이 없으면 원본 사용
+                                ingredients.push({
+                                    name: part,
+                                    originalName: part,
                                     amount: "",
                                     unit: "",
                                 });
                             }
                         });
+                    }
+                    
+                    // 디버깅: 첫 번째 레시피의 재료 정보만 로그
+                    if (recipe.RCP_SEQ === recipes[0]?.RCP_SEQ) {
+                        console.log("🔍 첫 번째 레시피 재료 파싱:");
+                        console.log("원본 RCP_PARTS_DTLS:", recipe.RCP_PARTS_DTLS);
+                        console.log("파싱된 재료:", ingredients.map(i => i.name).join(", "));
                     }
 
                     return {

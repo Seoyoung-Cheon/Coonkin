@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
     View,
     Text,
@@ -9,6 +9,7 @@ import {
     ActivityIndicator,
     Alert,
     Image,
+    Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,13 +20,22 @@ const RecipeSearchScreen = ({ navigation }) => {
     const [selectedIngredients, setSelectedIngredients] = useState([]);
     const [recipes, setRecipes] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [recipeType, setRecipeType] = useState("western"); // "korean" or "western"
+    const [recipeType, setRecipeType] = useState("korean"); // "korean" or "western"
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+    const inputRef = useRef(null);
 
     const addIngredient = () => {
         const ingredient = ingredientText.trim();
         if (ingredient && !selectedIngredients.includes(ingredient)) {
             setSelectedIngredients([...selectedIngredients, ingredient]);
             setIngredientText("");
+            // 키보드 닫기
+            Keyboard.dismiss();
+            // TextInput 포커스 해제
+            if (inputRef.current) {
+                inputRef.current.blur();
+            }
         }
     };
 
@@ -33,6 +43,21 @@ const RecipeSearchScreen = ({ navigation }) => {
         setSelectedIngredients(
             selectedIngredients.filter((item) => item !== ingredient)
         );
+    };
+
+    const resetSearchState = () => {
+        setRecipes([]);
+        setIngredientText("");
+        setSelectedIngredients([]);
+        setIsLoading(false);
+        setCurrentPage(1);
+    };
+
+    const handleRecipeTypeChange = (type) => {
+        if (recipeType !== type) {
+            resetSearchState();
+            setRecipeType(type);
+        }
     };
 
     const searchRecipes = async () => {
@@ -59,14 +84,220 @@ const RecipeSearchScreen = ({ navigation }) => {
             }
 
             setRecipes(results);
+            setCurrentPage(1); // 검색 시 첫 페이지로 리셋
         } catch (error) {
             Alert.alert(
                 "오류",
                 error.message || "레시피를 불러오는데 실패했습니다."
             );
             setRecipes([]);
+            setCurrentPage(1);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // 한식 재료명 동의어 매핑
+    const ingredientSynonyms = {
+        소고기: ["쇠고기", "소고기", "소고기살"],
+        쇠고기: ["소고기", "쇠고기", "소고기살"],
+        양파: ["양파", "양파(중간)", "양파(작은)"],
+        당근: ["당근", "당근(중간)", "당근(작은)"],
+        감자: ["감자", "감자(중간)", "감자(작은)"],
+    };
+
+    // 재료명 정규화 (동의어 처리 포함)
+    const normalizeIngredientName = (name) => {
+        let normalized = name.toLowerCase().trim();
+
+        // 동의어 처리
+        for (const [key, synonyms] of Object.entries(ingredientSynonyms)) {
+            if (
+                synonyms.some((syn) => normalized.includes(syn.toLowerCase()))
+            ) {
+                normalized = key.toLowerCase();
+                break;
+            }
+        }
+
+        // 괄호, 숫자, 단위 제거
+        normalized = normalized
+            .replace(/\([^)]*\)/g, "") // 괄호 내용 제거
+            .replace(/\d+[가-힣a-zA-Z\/]*/g, "") // 숫자+단위 제거 (예: "1/2개", "200g")
+            .replace(/[가-힣a-zA-Z]*\d+/g, "") // 단위+숫자 제거
+            .trim();
+
+        return normalized;
+    };
+
+    // 재료 매칭 확인 함수 (재사용)
+    const isIngredientMatched = (recipeIngredientName, selectedIngredient) => {
+        const normalizedRecipe = normalizeIngredientName(recipeIngredientName);
+        const normalizedSelected = normalizeIngredientName(selectedIngredient);
+
+        // 1. 정확히 일치하는지 확인
+        if (normalizedRecipe === normalizedSelected) {
+            return true;
+        }
+
+        // 2. 서로 포함 관계인지 확인 (단어 경계 고려)
+        if (normalizedRecipe.includes(normalizedSelected)) {
+            const regex = new RegExp(
+                `(^|[^가-힣a-zA-Z])${normalizedSelected.replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    "\\$&"
+                )}([^가-힣a-zA-Z]|$)`,
+                "i"
+            );
+            return regex.test(normalizedRecipe);
+        }
+
+        if (normalizedSelected.includes(normalizedRecipe)) {
+            const regex = new RegExp(
+                `(^|[^가-힣a-zA-Z])${normalizedRecipe.replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    "\\$&"
+                )}([^가-힣a-zA-Z]|$)`,
+                "i"
+            );
+            return regex.test(normalizedSelected);
+        }
+
+        return false;
+    };
+
+    // 사용자가 입력한 모든 재료가 레시피에 포함되어 있는지 확인
+    const hasAllSelectedIngredients = (recipe, index = 0) => {
+        if (!selectedIngredients || selectedIngredients.length === 0) {
+            return false;
+        }
+
+        const recipeIngredients =
+            recipe.translatedIngredients || recipe.ingredients || [];
+
+        if (recipeIngredients.length === 0) {
+            if (index < 3) {
+                console.log("⚠️ 레시피 재료가 없습니다:", recipe.title);
+            }
+            return false;
+        }
+
+        // 디버깅: 처음 3개 레시피만 상세 로그
+        const shouldLog = index < 3;
+        if (shouldLog) {
+            console.log(`🔍 [${index + 1}] 레시피:`, recipe.title);
+            console.log(
+                "📝 레시피 재료:",
+                recipeIngredients
+                    .map(
+                        (i) =>
+                            i.name || i.translatedName || i.originalName || ""
+                    )
+                    .join(", ")
+            );
+            console.log("✅ 사용자 입력 재료:", selectedIngredients.join(", "));
+        }
+
+        // 사용자가 입력한 각 재료가 레시피에 포함되어 있는지 확인
+        const allMatched = selectedIngredients.every((selectedIngredient) => {
+            const matched = recipeIngredients.some((ingredient) => {
+                const ingredientName =
+                    ingredient.translatedName ||
+                    ingredient.name ||
+                    ingredient.originalName ||
+                    "";
+                const isMatched = isIngredientMatched(
+                    ingredientName,
+                    selectedIngredient
+                );
+                if (isMatched && shouldLog) {
+                    console.log(
+                        `  ✅ 매칭: "${selectedIngredient}" <-> "${ingredientName}"`
+                    );
+                }
+                return isMatched;
+            });
+            if (!matched && shouldLog) {
+                console.log(
+                    `  ❌ 매칭 실패: "${selectedIngredient}"을(를) 찾을 수 없습니다.`
+                );
+            }
+            return matched;
+        });
+
+        if (shouldLog) {
+            console.log(
+                allMatched ? "✅ 모든 재료 매칭 성공" : "❌ 일부 재료 매칭 실패"
+            );
+            console.log("---");
+        }
+        return allMatched;
+    };
+
+    // 매칭률 계산 함수 (보유한 재료 수 / 전체 필요한 재료 수 * 100)
+    const calculateMatchRate = (recipe) => {
+        if (!selectedIngredients || selectedIngredients.length === 0) {
+            return 0; // 재료를 입력하지 않았으면 매칭률 0%
+        }
+
+        const recipeIngredients =
+            recipe.translatedIngredients || recipe.ingredients || [];
+
+        if (recipeIngredients.length === 0) {
+            return 0; // 레시피에 재료 정보가 없으면 매칭률 0%
+        }
+
+        let matchedCount = 0;
+
+        recipeIngredients.forEach((ingredient) => {
+            const ingredientName =
+                ingredient.translatedName ||
+                ingredient.name ||
+                ingredient.originalName ||
+                "";
+
+            const hasIngredient = selectedIngredients.some(
+                (selectedIngredient) => {
+                    return isIngredientMatched(
+                        ingredientName,
+                        selectedIngredient
+                    );
+                }
+            );
+
+            if (hasIngredient) {
+                matchedCount++;
+            }
+        });
+
+        // 매칭률 계산 (보유한 재료 수 / 전체 필요한 재료 수 * 100)
+        const matchRate = (matchedCount / recipeIngredients.length) * 100;
+        return Math.round(matchRate * 100) / 100; // 소수점 둘째 자리까지
+    };
+
+    // 사용자가 입력한 모든 재료를 사용하는 레시피만 필터링하고 매칭률 순으로 정렬
+    const filteredRecipes = recipes
+        .map((recipe, index) => ({
+            recipe,
+            index,
+        }))
+        .filter(({ recipe, index }) => hasAllSelectedIngredients(recipe, index)) // 사용자가 입력한 재료를 모두 사용하는 레시피만
+        .map(({ recipe }) => ({
+            ...recipe,
+            matchRate: calculateMatchRate(recipe),
+        }))
+        .sort((a, b) => b.matchRate - a.matchRate); // 매칭률 높은 순으로 정렬
+
+    // 페이지네이션 계산
+    const totalPages = Math.ceil(filteredRecipes.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentRecipes = filteredRecipes.slice(startIndex, endIndex);
+    const hasNextPage = currentPage < totalPages;
+
+    const handleNextPage = () => {
+        if (hasNextPage) {
+            setCurrentPage(currentPage + 1);
         }
     };
 
@@ -84,7 +315,7 @@ const RecipeSearchScreen = ({ navigation }) => {
                                 recipeType === "korean" &&
                                     styles.toggleButtonActive,
                             ]}
-                            onPress={() => setRecipeType("korean")}
+                            onPress={() => handleRecipeTypeChange("korean")}
                         >
                             <Text
                                 style={[
@@ -102,7 +333,7 @@ const RecipeSearchScreen = ({ navigation }) => {
                                 recipeType === "western" &&
                                     styles.toggleButtonActive,
                             ]}
-                            onPress={() => setRecipeType("western")}
+                            onPress={() => handleRecipeTypeChange("western")}
                         >
                             <Text
                                 style={[
@@ -121,15 +352,18 @@ const RecipeSearchScreen = ({ navigation }) => {
                     </Text>
                     <View style={styles.inputRow}>
                         <TextInput
+                            ref={inputRef}
                             style={styles.input}
                             placeholder="예: 양파, 당근, 감자"
                             value={ingredientText}
                             onChangeText={setIngredientText}
                             onSubmitEditing={addIngredient}
+                            returnKeyType="done"
                         />
                         <TouchableOpacity
                             style={styles.addButton}
                             onPress={addIngredient}
+                            activeOpacity={0.7}
                         >
                             <Ionicons name="add" size={24} color="#fff" />
                         </TouchableOpacity>
@@ -196,16 +430,19 @@ const RecipeSearchScreen = ({ navigation }) => {
                     </View>
                 )}
 
-                {!isLoading && recipes.length > 0 && (
+                {!isLoading && filteredRecipes.length > 0 && (
                     <View style={styles.resultsSection}>
-                        <Text style={styles.resultsTitle}>검색 결과</Text>
-                        {recipes.map((recipe, index) => (
+                        <Text style={styles.resultsTitle}>
+                            검색 결과 ({filteredRecipes.length}개)
+                        </Text>
+                        {currentRecipes.map((recipe, index) => (
                             <TouchableOpacity
-                                key={index}
+                                key={startIndex + index}
                                 style={styles.recipeCard}
                                 onPress={() => {
                                     navigation.navigate("RecipeDetail", {
                                         recipe,
+                                        selectedIngredients,
                                     });
                                 }}
                             >
@@ -233,11 +470,31 @@ const RecipeSearchScreen = ({ navigation }) => {
                                 </View>
                             </TouchableOpacity>
                         ))}
+                        {hasNextPage && (
+                            <TouchableOpacity
+                                style={styles.nextPageButton}
+                                onPress={handleNextPage}
+                            >
+                                <Text style={styles.nextPageButtonText}>
+                                    다음 페이지 ({currentPage + 1}/{totalPages})
+                                </Text>
+                                <Ionicons
+                                    name="chevron-forward"
+                                    size={20}
+                                    color="#fff"
+                                />
+                            </TouchableOpacity>
+                        )}
+                        {totalPages > 1 && (
+                            <Text style={styles.pageInfo}>
+                                {currentPage} / {totalPages} 페이지
+                            </Text>
+                        )}
                     </View>
                 )}
 
                 {!isLoading &&
-                    recipes.length === 0 &&
+                    filteredRecipes.length === 0 &&
                     selectedIngredients.length > 0 && (
                         <View style={styles.emptyContainer}>
                             <Text style={styles.emptyText}>
@@ -253,7 +510,7 @@ const RecipeSearchScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFF8F6",
+        backgroundColor: "#ffe6d8",
     },
     scrollView: {
         flex: 1,
@@ -280,7 +537,7 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     toggleButtonActive: {
-        backgroundColor: "#ff6b35",
+        backgroundColor: "#645559",
     },
     toggleButtonText: {
         fontSize: 16,
@@ -313,7 +570,7 @@ const styles = StyleSheet.create({
         fontFamily: "LeeSeoYun",
     },
     addButton: {
-        backgroundColor: "#ff6b35",
+        backgroundColor: "#645559",
         borderRadius: 8,
         padding: 12,
         marginLeft: 8,
@@ -352,7 +609,7 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "#ff6b35",
+        backgroundColor: "#645559",
         paddingVertical: 16,
         borderRadius: 8,
         marginTop: 8,
@@ -429,6 +686,29 @@ const styles = StyleSheet.create({
     emptyText: {
         fontSize: 16,
         color: "#999",
+        fontFamily: "LeeSeoYun",
+    },
+    nextPageButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#ff6b35",
+        paddingVertical: 14,
+        borderRadius: 8,
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    nextPageButtonText: {
+        color: "#fff",
+        fontSize: 16,
+        marginRight: 8,
+        fontFamily: "LeeSeoYun",
+    },
+    pageInfo: {
+        textAlign: "center",
+        fontSize: 14,
+        color: "#666",
+        marginTop: 8,
         fontFamily: "LeeSeoYun",
     },
 });
